@@ -1,14 +1,21 @@
+project_structure:
+    build: build
+    contracts: contracts
+    interfaces: interfaces
+    reports: reports
+    scripts: scripts
+    tests: tests
 compiler:
-  vyper:
-    version: 0.3.7
+    vyper:
+        version: 0.3.7
 networks:
-  default: alfajores
+    default: alfajores
 console:
-  show_colors: true
-  color_style: monokai
-  auto_suggest: true
-  completions: true
-  editing_mode: emacs
+    show_colors: true
+    color_style: monokai
+    auto_suggest: true
+    completions: true
+    editing_mode: emacs
 dotenv: .env
 wallets:
-  from_mnemonic: ${MNEMONIC}
+    from_mnemonic: ${MNEMONIC}
