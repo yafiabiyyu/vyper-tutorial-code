@@ -7,11 +7,8 @@
 from vyper.interfaces import ERC165
 from vyper.interfaces import ERC721
 
-implements: ERC165
-implements: ERC721
 
-
-# DEFINE INTERFACE
+# Define Interface
 
 interface ERC721Receiver:
     def onERC721Received(
@@ -25,33 +22,36 @@ interface IRandom:
     def random() -> bytes32: view
 
 
-# DEFINE GLOBAL VARIABLES
+# Define State Variables
 
 _name: String[50]
-_symbol: String[10]
-_counter: uint256
+_symbol: String[5]
+_tokenURI: DynArray[String[100], 4]
+_rarityArray: DynArray[uint256, 4]
+_tokenCounter: uint256
 _mintingFee: uint256
-_dev: address
-_RANDOM: IRandom
 
+_devAddress: address
+_random: IRandom
 SUPPORTED_INTERFACES: constant(bytes4[2]) = [
     0x01ffc9a7,
     0x80ac58cd
 ]
 
 
-# DEFINE MAPPINGS
+# Define Mappings
 
 _owner: HashMap[uint256, address]
 _balance: HashMap[address, uint256]
 _tokenApprovals: HashMap[uint256, address]
 _operatorApprovals: HashMap[address, HashMap[address, bool]]
+_tokenIdToURI: HashMap[uint256, String[100]]
 
 
-# DEFINE EVENTS
+# Define Events
 
 event TransferOwnerShip:
-    owner: indexed(address)
+    newOwner: indexed(address)
     oldOwner: indexed(address)
 
 event Transfer:
@@ -71,41 +71,37 @@ event ApprovalForAll:
 
 
 @external
-def __init__(name_: String[50], symbol_: String[10], mintingFee_: uint256):
+def __init__(name_: String[50], symbol_: String[5], tokenURI_: DynArray[String[100], 4], rarityArray_: DynArray[uint256, 4], mintingFee_: uint256, random_: address):
     self._name = name_
     self._symbol = symbol_
-    self._counter = 0
+    self._tokenURI = tokenURI_
+    self._rarityArray = rarityArray_
+    self._tokenCounter = 0
     self._mintingFee = mintingFee_
-    self._dev = msg.sender
-    self._RANDOM = IRandom(0xdd318EEF001BB0867Cd5c134496D6cF5Aa32311F)
+    self._devAddress = msg.sender
+    self._random = IRandom(random_)
 
 
-# DEFINE DEV FUNCTIONS
-
-@external
-def setFee(fee_: uint256):
-    assert msg.sender == self._dev, "ERC721: Only dev can set fee"
-    assert fee_ > 0, "ERC721: Fee must be greater than 0"
-    self._mintingFee = fee_
+# Define Dev Function
 
 @external
-def transferOwnership(newOwner_: address):
-    assert msg.sender == self._dev, "ERC721: Only dev can transfer ownership"
-    assert newOwner_ != empty(address), "ERC721: Owner cannot be zero address"
-    self._dev = newOwner_
-    log TransferOwnerShip(msg.sender, newOwner_)
+def updateFee(mintingFee_: uint256):
+    assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
+    self._mintingFee = mintingFee_
 
-
-# DEFINE ERC721 FUNCTIONS
-
-@pure
 @external
-def supportsInterface(interface_id: bytes4) -> bool:
-    """
-    @dev Interface identification is specified in ERC-165.
-    @param interface_id Id of the interface
-    """
-    return interface_id in SUPPORTED_INTERFACES
+def transferOwnerShip(newOwner_: address):
+    assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
+    self._devAddress = newOwner_
+    log TransferOwnerShip(newOwner_, msg.sender)
+
+@view
+@external
+def getDev() -> address:
+    return self._devAddress
+
+
+# Define ERC721 Functions
 
 @view
 @external
@@ -114,18 +110,8 @@ def name() -> String[50]:
 
 @view
 @external
-def symbol() -> String[10]:
+def symbol() -> String[5]:
     return self._symbol
-
-@view
-@external
-def fee() -> uint256:
-    return self._mintingFee
-
-@view
-@external
-def dev() -> address:
-    return self._dev
 
 @view
 @external
@@ -139,6 +125,12 @@ def ownerOf(tokenId_: uint256) -> address:
 
 @view
 @external
+def getTokenURI(tokenId_: uint256) -> String[100]:
+    assert self._exist(tokenId_), "ERC721: Invalid token id"
+    return self._tokenIdToURI[tokenId_]
+
+@view
+@external
 def getApproved(tokenId_: uint256) -> address:
     return self._tokenApprovals[tokenId_]
 
@@ -146,6 +138,22 @@ def getApproved(tokenId_: uint256) -> address:
 @external
 def isApprovedForAll(owner_: address, operator_: address) -> bool:
     return self._operatorApprovals[owner_][operator_]
+
+@view
+@external
+def fee() -> uint256:
+    return self._mintingFee
+
+@external
+@payable
+def mint():
+    assert msg.value == self._mintingFee, "ERC721: Insufficient fee"
+    randomNumber: uint256 = self._getRandomNumber() % 100
+    rarity: uint256 = self._calculateRarity(randomNumber)
+    self._setTokenURI(self._tokenCounter, self._tokenURI[rarity])
+    self._owner[self._tokenCounter] = msg.sender
+    self._balance[msg.sender] += 1
+    self._tokenCounter += 1
 
 @external
 def approve(spender_: address, tokenId_: uint256):
@@ -179,28 +187,38 @@ def safeTransferFrom(from_: address, to_: address, tokenId_: uint256, data_: Byt
         # Throws if transfer destination is a contract which does not implement 'onERC721Received'
         assert returnValue == method_id("onERC721Received(address,address,uint256,bytes)", output_type=bytes4)
 
+@pure
 @external
-@payable
-def mint():
-    assert msg.value == self._mintingFee, "ERC721: Invalid amount"
-    self._owner[self._counter] = msg.sender
-    self._balance[msg.sender] += 1
-    self._counter += 1
+def supportsInterface(interface_id: bytes4) -> bool:
+    """
+    @dev Interface identification is specified in ERC-165.
+    @param interface_id Id of the interface
+    """
+    return interface_id in SUPPORTED_INTERFACES
 
+@internal
+def _setTokenURI(tokenId_: uint256, tokenURI_: String[100]):
+    self._tokenIdToURI[tokenId_] = tokenURI_
 
-@external
-def burn(tokenId_: uint256):
-    assert self._isApprovedOrOwner(msg.sender, tokenId_), "ERC721: Not owner or approved"
-    owner: address = self._ownerOf(tokenId_)
-    assert owner != empty(address), "ERC721: Invalid token id"
-    self._balance[owner] -= 1
-    self._owner[tokenId_] = empty(address)
-    self._tokenApprovals[tokenId_] = empty(address)
+@view
+@internal
+def _calculateRarity(randomNumber_: uint256) -> uint256:
+    cumulativeSum: uint256 = 0
+    rarity: uint256 = 0
+    for i in range(4):
+        if randomNumber_ >= cumulativeSum:
+            if randomNumber_ < self._rarityArray[i]:
+                rarity = i
+        cumulativeSum = self._rarityArray[i]
+    return rarity
 
-
-
-
-# DEFINE INTERNAL FUNCTIONS
+@view
+@internal
+def _getRandomNumber() -> uint256:
+    randomHash: bytes32 = keccak256(
+        concat(blockhash(block.number - 15), self._random.random())
+    )
+    return convert(randomHash, uint256)
 
 @internal
 def _transfer(from_: address, to_: address, sender_: address, tokenId_: uint256):
