@@ -85,6 +85,12 @@ def __init__(name_: String[50], symbol_: String[5], tokenURI_: DynArray[String[1
 # Define Dev Function
 
 @external
+def claimFee():
+    assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
+    amount: uint256 = self.balance
+    send(self._devAddress, amount)
+
+@external
 def updateFee(mintingFee_: uint256):
     assert msg.sender == self._devAddress, "Ownable: Only dev can call this function"
     self._mintingFee = mintingFee_
@@ -153,7 +159,19 @@ def mint():
     self._setTokenURI(self._tokenCounter, self._tokenURI[rarity])
     self._owner[self._tokenCounter] = msg.sender
     self._balance[msg.sender] += 1
+    log Transfer(empty(address), msg.sender, self._tokenCounter)
     self._tokenCounter += 1
+
+
+@external
+def burn(tokenId_: uint256):
+    assert self._isApprovedOrOwner(msg.sender, tokenId_), "ERC721: Not owner or approved"
+    owner: address = self._ownerOf(tokenId_)
+    assert owner != empty(address), "ERC721: Invalid token id"
+    self._balance[owner] -= 1
+    self._owner[tokenId_] = empty(address)
+    self._tokenApprovals[tokenId_] = empty(address)
+    log Transfer(msg.sender, empty(address), tokenId_)
 
 @external
 def approve(spender_: address, tokenId_: uint256):
